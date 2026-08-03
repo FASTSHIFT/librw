@@ -1691,10 +1691,19 @@ static struct {
 	int gl;
 	int major, minor;
 } profiles[] = {
+#ifdef RPI_PREFER_GLES
+	// Raspberry Pi (VideoCore IV): prefer hardware GLES2 over software desktop GL.
+	// XWayland/llvmpipe would otherwise hand us a software GL 2.1 context first.
+	{ GLFW_OPENGL_ES_API, 2, 0 },
+	{ GLFW_OPENGL_ES_API, 3, 1 },
+	{ GLFW_OPENGL_API, 3, 3 },
+	{ GLFW_OPENGL_API, 2, 1 },
+#else
 	{ GLFW_OPENGL_API, 3, 3 },
 	{ GLFW_OPENGL_API, 2, 1 },
 	{ GLFW_OPENGL_ES_API, 3, 1 },
 	{ GLFW_OPENGL_ES_API, 2, 0 },
+#endif
 	{ 0, 0, 0 },
 };
 
