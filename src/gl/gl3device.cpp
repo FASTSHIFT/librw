@@ -1716,10 +1716,22 @@ startGLFW(void)
 	mode = &glGlobals.modes[glGlobals.currentMode];
 
 	glfwSetErrorCallback(glfwerr);
+#ifdef RPI_PREFER_GLES
+	// Raspberry Pi (VideoCore IV): request a 16bpp framebuffer (RGB565) and a
+	// 16-bit depth buffer to halve framebuffer read/write bandwidth. VC4 is
+	// bandwidth-bound, so this targets the actual bottleneck (overdraw + BW).
+	glfwWindowHint(GLFW_RED_BITS, 5);
+	glfwWindowHint(GLFW_GREEN_BITS, 6);
+	glfwWindowHint(GLFW_BLUE_BITS, 5);
+	glfwWindowHint(GLFW_ALPHA_BITS, 0);
+	glfwWindowHint(GLFW_DEPTH_BITS, 16);
+	glfwWindowHint(GLFW_REFRESH_RATE, mode->mode.refreshRate);
+#else
 	glfwWindowHint(GLFW_RED_BITS, mode->mode.redBits);
 	glfwWindowHint(GLFW_GREEN_BITS, mode->mode.greenBits);
 	glfwWindowHint(GLFW_BLUE_BITS, mode->mode.blueBits);
 	glfwWindowHint(GLFW_REFRESH_RATE, mode->mode.refreshRate);
+#endif
 	
 	// GLX will round up to 2x or 4x if you ask for multisampling on with 1 sample
 	// So only apply the SAMPLES hint if we actually want multisampling
