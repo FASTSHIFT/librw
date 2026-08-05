@@ -1409,10 +1409,16 @@ showRaster(Raster *raster, uint32 flags)
 //		raster->width, raster->height);
 
 #if defined(LIBRW_GBM)
-	// No window system: rendering goes to an offscreen default framebuffer.
-	// Just ensure GPU work is done; the app (re3 skeleton) reads it back and
-	// pushes to the display (fb0 / SPI).
+	// No window system: the camera renders into a texture-backed FBO (see
+	// rasterCreateCamera). Bind that FBO so the app (re3 skeleton) can read it
+	// back with glReadPixels right after this call, then push it to the display
+	// (fb0 / SPI). Ensure GPU work is done first.
 	(void)flags;
+	{
+		Raster *fb = raster->parent;
+		Gl3Raster *natfb = PLUGINOFFSET(Gl3Raster, fb, nativeRasterOffset);
+		bindFramebuffer(natfb->fbo);
+	}
 	glFinish();
 #elif defined(LIBRW_SDL2)
 	if(flags & Raster::FLIPWAITVSYNCH)

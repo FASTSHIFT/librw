@@ -223,9 +223,40 @@ rasterCreateCamera(Raster *raster)
 
 	natras->autogenMipmap = 0;
 
+#if defined(LIBRW_GBM)
+	// Surfaceless EGL context has no default framebuffer, so the main camera
+	// can't render to fbo 0 (everything would be discarded). Back it with a
+	// real texture+FBO instead; the app reads this back (glReadPixels) and
+	// pushes it to the display (fb0 / SPI). See docs/07, docs/08.
+	// GLES glReadPixels only reliably supports GL_RGBA, so use an RGBA target.
+	natras->internalFormat = GL_RGBA;
+	natras->format = GL_RGBA;
+	natras->type = GL_UNSIGNED_BYTE;
+	natras->hasAlpha = 1;
+	natras->bpp = 4;
+	raster->stride = raster->width*natras->bpp;
+
+	glGenTextures(1, &natras->texid);
+	uint32 prev = bindTexture(natras->texid);
+	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
+	             raster->width, raster->height,
+	             0, natras->format, natras->type, nil);
+	natras->filterMode = 0;
+	natras->addressU = 0;
+	natras->addressV = 0;
+	natras->maxAnisotropy = 1;
+	bindTexture(prev);
+
+	glGenFramebuffers(1, &natras->fbo);
+	bindFramebuffer(natras->fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid, 0);
+	bindFramebuffer(0);
+	natras->fboMate = nil;
+#else
 	natras->texid = 0;
 	natras->fbo = 0;
 	natras->fboMate = nil;
+#endif
 
 	return raster;
 }
@@ -867,6 +898,13 @@ destroyNativeRaster(void *object, int32 offset, int32)
 			zras->fboMate = nil;
 			natras->fboMate = nil;
 		}
+#if defined(LIBRW_GBM)
+		// GBM camera is texture+FBO backed (see rasterCreateCamera); free them.
+		if(natras->fbo)
+			glDeleteFramebuffers(1, &natras->fbo);
+		if(natras->texid)
+			glDeleteTextures(1, &natras->texid);
+#endif
 		break;
 	}
 	natras->texid = 0;
