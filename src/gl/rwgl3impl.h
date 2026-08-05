@@ -24,7 +24,9 @@ void im3DEnd(void);
 
 struct DisplayMode
 {
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+	struct { int w, h, refresh_rate; } mode;	// minimal, matches fields we use
+#elif defined(LIBRW_SDL2)
 	SDL_DisplayMode mode;
 #else
 	GLFWvidmode mode;
@@ -35,7 +37,17 @@ struct DisplayMode
 
 struct GlGlobals
 {
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+	// GBM/EGL surfaceless backend (no window system, renders offscreen).
+	// Opaque handles to avoid pulling EGL/GBM headers into this shared header.
+	void **pWindow;		// unused, kept for interface symmetry
+	void *window;		// unused
+	void *gbm;		// struct gbm_device*
+	int drmfd;
+	void *eglDisplay;	// EGLDisplay
+	void *eglContext;	// EGLContext
+	int fbWidth, fbHeight;	// offscreen render target size
+#elif defined(LIBRW_SDL2)
 	SDL_Window **pWindow;
 	SDL_Window *window;
 	SDL_GLContext glcontext;

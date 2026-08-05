@@ -162,6 +162,14 @@ if(LIBRW_PLATFORM_GL3)
             PUBLIC
                 SDL2::SDL2
         )
+    elseif (LIBRW_GL3_GFXLIB STREQUAL "GBM")
+        # Surfaceless EGL+GBM backend (no window system) for headless/SPI output.
+        target_compile_definitions(librw PUBLIC LIBRW_GBM)
+        target_link_libraries(librw
+            PUBLIC
+                gbm
+                EGL
+        )
     endif()
 
     set(OpenGL_GL_PREFERENCE GLVND)

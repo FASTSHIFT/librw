@@ -1243,7 +1243,10 @@ getFramebufferRect(Raster *frameBuffer)
 	Rect r;
 	Raster *fb = frameBuffer->parent;
 	if(fb->type == Raster::CAMERA){
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+		r.w = glGlobals.fbWidth;
+		r.h = glGlobals.fbHeight;
+#elif defined(LIBRW_SDL2)
 		SDL_GetWindowSize(glGlobals.window, &r.w, &r.h);
 #else
 		glfwGetFramebufferSize(glGlobals.window, &r.w, &r.h);
@@ -1405,7 +1408,13 @@ showRaster(Raster *raster, uint32 flags)
 //	glViewport(raster->offsetX, raster->offsetY,
 //		raster->width, raster->height);
 
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+	// No window system: rendering goes to an offscreen default framebuffer.
+	// Just ensure GPU work is done; the app (re3 skeleton) reads it back and
+	// pushes to the display (fb0 / SPI).
+	(void)flags;
+	glFinish();
+#elif defined(LIBRW_SDL2)
 	if(flags & Raster::FLIPWAITVSYNCH)
 		SDL_GL_SetSwapInterval(1);
 	else
@@ -1446,7 +1455,128 @@ rasterRenderFast(Raster *raster, int32 x, int32 y)
 	return 0;
 }
 
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+
+// ---------------------------------------------------------------------------
+// GBM/EGL surfaceless backend: no window system, renders offscreen.
+// Used for Raspberry Pi SPI-display / headless output (see docs/07).
+// The app reads the default framebuffer back (glReadPixels) and pushes it to
+// the display (fb0 / SPI). librw just provides a hardware GLES context.
+// ---------------------------------------------------------------------------
+
+static int
+openGBM(EngineOpenParams *openparams)
+{
+	glGlobals.winWidth = openparams->width;
+	glGlobals.winHeight = openparams->height;
+	glGlobals.winTitle = openparams->windowtitle;
+	glGlobals.fbWidth = openparams->width;
+	glGlobals.fbHeight = openparams->height;
+
+	memset(&gl3Caps, 0, sizeof(gl3Caps));
+
+	// single "video mode" = the requested offscreen size
+	rwFree(glGlobals.modes);
+	glGlobals.modes = rwNewT(DisplayMode, 1, ID_DRIVER | MEMDUR_EVENT);
+	glGlobals.modes[0].mode.w = openparams->width;
+	glGlobals.modes[0].mode.h = openparams->height;
+	glGlobals.modes[0].mode.refresh_rate = 60;
+	glGlobals.modes[0].depth = 32;
+	glGlobals.modes[0].flags = 0;
+	glGlobals.numModes = 1;
+	glGlobals.currentMode = 0;
+
+	glGlobals.drmfd = open("/dev/dri/renderD128", O_RDWR);
+	if(glGlobals.drmfd < 0){
+		RWERROR((ERR_GENERAL, "open /dev/dri/renderD128 failed"));
+		return 0;
+	}
+	glGlobals.gbm = gbm_create_device(glGlobals.drmfd);
+	if(glGlobals.gbm == nil){
+		RWERROR((ERR_GENERAL, "gbm_create_device failed"));
+		return 0;
+	}
+	return 1;
+}
+
+static int
+closeGBM(void)
+{
+	if(glGlobals.gbm){ gbm_device_destroy((struct gbm_device*)glGlobals.gbm); glGlobals.gbm = nil; }
+	if(glGlobals.drmfd >= 0){ close(glGlobals.drmfd); glGlobals.drmfd = -1; }
+	return 1;
+}
+
+static int
+startGBM(void)
+{
+	PFNEGLGETPLATFORMDISPLAYEXTPROC getPlatformDisplay =
+		(PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+	EGLDisplay dpy;
+	if(getPlatformDisplay)
+		dpy = getPlatformDisplay(EGL_PLATFORM_GBM_KHR, glGlobals.gbm, nil);
+	else
+		dpy = eglGetDisplay((EGLNativeDisplayType)glGlobals.gbm);
+	if(dpy == EGL_NO_DISPLAY){ RWERROR((ERR_GENERAL, "eglGetDisplay failed")); return 0; }
+
+	EGLint major, minor;
+	if(!eglInitialize(dpy, &major, &minor)){ RWERROR((ERR_GENERAL, "eglInitialize failed")); return 0; }
+	eglBindAPI(EGL_OPENGL_ES_API);
+
+	EGLint cfgattr[] = {
+		EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
+		EGL_NONE
+	};
+	EGLConfig cfg; EGLint ncfg;
+	if(!(eglChooseConfig(dpy, cfgattr, &cfg, 1, &ncfg) && ncfg > 0))
+		cfg = EGL_NO_CONFIG_KHR;	// configless (EGL_MESA_configless_context)
+
+	EGLint ctxattr[] = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE };
+	EGLContext ctx = eglCreateContext(dpy, cfg, EGL_NO_CONTEXT, ctxattr);
+	if(ctx == EGL_NO_CONTEXT){ RWERROR((ERR_GENERAL, "eglCreateContext failed")); return 0; }
+
+	if(!eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, ctx)){
+		RWERROR((ERR_GENERAL, "eglMakeCurrent(surfaceless) failed"));
+		return 0;
+	}
+
+	gl3Caps.gles = 1;
+	gl3Caps.glversion = 20;
+	if(!gladLoadGLES2Loader((GLADloadproc)eglGetProcAddress, gl3Caps.glversion)){
+		RWERROR((ERR_GENERAL, "gladLoadGLES2Loader failed"));
+		return 0;
+	}
+
+	printf("OpenGL version: %s\n", glGetString(GL_VERSION));
+
+	glGlobals.eglDisplay = dpy;
+	glGlobals.eglContext = ctx;
+	glGlobals.presentWidth = 0;
+	glGlobals.presentHeight = 0;
+	glGlobals.presentOffX = 0;
+	glGlobals.presentOffY = 0;
+	return 1;
+}
+
+static int
+stopGBM(void)
+{
+	EGLDisplay dpy = (EGLDisplay)glGlobals.eglDisplay;
+	if(dpy){
+		eglMakeCurrent(dpy, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+		if(glGlobals.eglContext) eglDestroyContext(dpy, (EGLContext)glGlobals.eglContext);
+		eglTerminate(dpy);
+	}
+	glGlobals.eglDisplay = nil;
+	glGlobals.eglContext = nil;
+	return 1;
+}
+
+// deviceSystemGBM is defined later, alongside deviceSystemSDL2/GLFW, where
+// initOpenGL/termOpenGL/finalizeOpenGL are in scope.
+
+#elif defined(LIBRW_SDL2)
 
 static void
 addVideoMode(int displayIndex, int modeIndex)
@@ -1940,7 +2070,49 @@ finalizeOpenGL(void)
 	return 1;
 }
 
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+static int
+deviceSystemGBM(DeviceReq req, void *arg, int32 n)
+{
+	VideoMode *rwmode;
+	switch(req){
+	case DEVICEOPEN:   return openGBM((EngineOpenParams*)arg);
+	case DEVICECLOSE:  return closeGBM();
+	case DEVICEINIT:   return startGBM() && initOpenGL();
+	case DEVICETERM:   return termOpenGL() && stopGBM();
+	case DEVICEFINALIZE: return finalizeOpenGL();
+
+	case DEVICEGETNUMSUBSYSTEMS:    return 1;
+	case DEVICEGETCURRENTSUBSYSTEM: return 0;
+	case DEVICESETSUBSYSTEM:        return 1;
+	case DEVICEGETSUBSSYSTEMINFO:
+		strncpy(((SubSystemInfo*)arg)->name, "GBM", sizeof(SubSystemInfo::name));
+		return 1;
+
+	case DEVICEGETNUMVIDEOMODES:    return glGlobals.numModes;
+	case DEVICEGETCURRENTVIDEOMODE: return glGlobals.currentMode;
+	case DEVICESETVIDEOMODE:
+		if(n >= glGlobals.numModes) return 0;
+		glGlobals.currentMode = n;
+		return 1;
+	case DEVICEGETVIDEOMODEINFO:
+		rwmode = (VideoMode*)arg;
+		rwmode->width = glGlobals.modes[n].mode.w;
+		rwmode->height = glGlobals.modes[n].mode.h;
+		rwmode->depth = glGlobals.modes[n].depth;
+		rwmode->flags = glGlobals.modes[n].flags;
+		return 1;
+
+	case DEVICEGETMAXMULTISAMPLINGLEVELS: return 1;
+	case DEVICEGETMULTISAMPLINGLEVELS:    return 1;
+	case DEVICESETMULTISAMPLINGLEVELS:    return 1;
+	default:
+		assert(0 && "not implemented");
+		return 0;
+	}
+	return 1;
+}
+#elif defined(LIBRW_SDL2)
 static int
 deviceSystemSDL2(DeviceReq req, void *arg, int32 n)
 {
@@ -2110,7 +2282,9 @@ Device renderdevice = {
 	gl3::im3DRenderPrimitive,
 	gl3::im3DRenderIndexedPrimitive,
 	gl3::im3DEnd,
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+	gl3::deviceSystemGBM
+#elif defined(LIBRW_SDL2)
 	gl3::deviceSystemSDL2
 #else
 	gl3::deviceSystemGLFW

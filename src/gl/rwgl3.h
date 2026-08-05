@@ -1,6 +1,12 @@
 #ifdef RW_GL3
 #include "glad/glad.h"
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+#include <fcntl.h>
+#include <unistd.h>
+#include <gbm.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#elif defined(LIBRW_SDL2)
 #include <SDL.h>
 #else
 #include <GLFW/glfw3.h>
@@ -12,7 +18,9 @@ namespace rw {
 #ifdef RW_GL3
 struct EngineOpenParams
 {
-#ifdef LIBRW_SDL2
+#if defined(LIBRW_GBM)
+	void **window;		// unused for GBM (no window system)
+#elif defined(LIBRW_SDL2)
 	SDL_Window **window;
 	bool32 fullscreen;
 #else
