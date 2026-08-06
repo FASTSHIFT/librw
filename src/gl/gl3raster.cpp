@@ -270,7 +270,17 @@ rasterCreateZbuffer(Raster *raster)
 		// have to use RBO on GLES!!
 		glGenRenderbuffers(1, &natras->texid);
 		glBindRenderbuffer(GL_RENDERBUFFER, natras->texid);
+#if defined(LIBRW_GBM)
+		// VC4 (Raspberry Pi) does not give a working depth buffer when a packed
+		// DEPTH24_STENCIL8 renderbuffer is attached to a texture-backed FBO
+		// (GL_DEPTH_BITS reports 0, depth test silently no-ops -> z-fighting /
+		// "broken faces"; verified with spike/egl_depth_fbo_test.c). A separate
+		// depth-only DEPTH_COMPONENT24 renderbuffer works correctly there.
+		// re3 doesn't use stencil in the GBM/GLES path, so dropping it is safe.
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, raster->width, raster->height);
+#else
 		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, raster->width, raster->height);
+#endif
 	}else{
 		// TODO: set/check width, height, depth, format?
 		natras->internalFormat = GL_DEPTH_STENCIL;
@@ -881,7 +891,12 @@ destroyNativeRaster(void *object, int32 offset, int32)
 			Gl3Raster *oldfb = GETGL3RASTEREXT(natras->fboMate);
 			if(oldfb->fbo){
 				bindFramebuffer(oldfb->fbo);
+#if defined(LIBRW_GBM)
+				// GBM uses a depth-only attachment (see setFrameBuffer/VC4 note).
+				glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
+#else
 				glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+#endif
 			}
 			oldfb->fboMate = nil;
 		}

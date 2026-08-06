@@ -1192,6 +1192,14 @@ flushCache(void)
 	flushUniforms();
 }
 
+// VC4 (GBM/GLES) uses a depth-only renderbuffer (see rasterCreateZbuffer), so
+// it attaches at GL_DEPTH_ATTACHMENT. Other backends use packed depth-stencil.
+#if defined(LIBRW_GBM)
+#define RW_GBM_DEPTH_ATTACHMENT GL_DEPTH_ATTACHMENT
+#else
+#define RW_GBM_DEPTH_ATTACHMENT GL_DEPTH_STENCIL_ATTACHMENT
+#endif
+
 static void
 setFrameBuffer(Camera *cam)
 {
@@ -1215,7 +1223,7 @@ setFrameBuffer(Camera *cam)
 				Gl3Raster *oldfb = PLUGINOFFSET(Gl3Raster, natzb->fboMate, nativeRasterOffset);
 				if(oldfb->fbo){
 					bindFramebuffer(oldfb->fbo);
-					glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+					glFramebufferTexture2D(GL_FRAMEBUFFER, RW_GBM_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 					bindFramebuffer(natfb->fbo);
 				}
 				oldfb->fboMate = nil;
@@ -1224,15 +1232,15 @@ setFrameBuffer(Camera *cam)
 			natzb->fboMate = fbuf;
 			if(natfb->fbo){
 				if(gl3Caps.gles)
-					glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, natzb->texid);
+					glFramebufferRenderbuffer(GL_FRAMEBUFFER, RW_GBM_DEPTH_ATTACHMENT, GL_RENDERBUFFER, natzb->texid);
 				else
-					glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, natzb->texid, 0);
+					glFramebufferTexture2D(GL_FRAMEBUFFER, RW_GBM_DEPTH_ATTACHMENT, GL_TEXTURE_2D, natzb->texid, 0);
 			}
 		}
 	}else{
 		// remove z-buffer
 		if(natfb->fboMate && natfb->fbo)
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, RW_GBM_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 		natfb->fboMate = nil;
 	}
 }
