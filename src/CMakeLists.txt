@@ -130,6 +130,33 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang
                 "-Wpedantic"
         )
     endif()
+    # Silence the large set of pre-existing warnings that only surface on
+    # modern GCC/Clang (glad.c: ISO C func-pointer casts; many unused params
+    # in stubbed backends). Appended AFTER -Wall/-Wextra/-Wpedantic so they
+    # take effect. Controlled by LIBRW_STRICT_WARNINGS (default OFF = quiet).
+    option(LIBRW_STRICT_WARNINGS "Treat all librw warnings strictly" OFF)
+    if(NOT LIBRW_STRICT_WARNINGS)
+        target_compile_options(librw
+            PRIVATE
+                -Wno-pedantic
+                -Wno-unused-parameter
+                -Wno-sign-compare
+                -Wno-double-promotion
+                -Wno-parentheses
+                -Wno-unused-variable
+                -Wno-unused-function
+                -Wno-unused-but-set-variable
+                -Wno-maybe-uninitialized
+                -Wno-stringop-truncation
+                -Wno-stringop-overflow
+                -Wno-unused-result
+                -Wno-restrict
+                -Wno-misleading-indentation
+                $<$<COMPILE_LANGUAGE:CXX>:-Wno-reorder>
+                $<$<COMPILE_LANGUAGE:CXX>:-Wno-class-memaccess>
+                $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-copy>
+        )
+    endif()
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     target_compile_options(librw
         PUBLIC
