@@ -433,7 +433,7 @@ setAlphaTest(bool32 enable)
 	uint32 shaderfunc;
 	if(rwStateCache.alphaTestEnable != enable){
 		rwStateCache.alphaTestEnable = enable;
-		shaderfunc = rwStateCache.alphaTestEnable ? rwStateCache.alphaFunc : ALPHAALWAYS;
+		shaderfunc = rwStateCache.alphaTestEnable ? rwStateCache.alphaFunc : (uint32)ALPHAALWAYS;
 		if(alphaFunc != shaderfunc){
 			alphaFunc = shaderfunc;
 			uniformStateDirty[RWGL_ALPHAFUNC] = true;
@@ -448,7 +448,7 @@ setAlphaTestFunction(uint32 function)
 	uint32 shaderfunc;
 	if(rwStateCache.alphaFunc != function){
 		rwStateCache.alphaFunc = function;
-		shaderfunc = rwStateCache.alphaTestEnable ? rwStateCache.alphaFunc : ALPHAALWAYS;
+		shaderfunc = rwStateCache.alphaTestEnable ? rwStateCache.alphaFunc : (uint32)ALPHAALWAYS;
 		if(alphaFunc != shaderfunc){
 			alphaFunc = shaderfunc;
 			uniformStateDirty[RWGL_ALPHAFUNC] = true;
