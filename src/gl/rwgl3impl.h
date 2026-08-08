@@ -3,6 +3,12 @@ namespace gl3 {
 
 #ifdef RW_OPENGL
 
+// Per-frame draw call counter. Reset each frame by the skeleton; read via
+// gl3_get_and_reset_drawcalls(). Thread-safe for single-render-thread use.
+extern int gl3_drawcall_count;
+static inline void gl3_count_drawcall(void) { gl3_drawcall_count++; }
+int gl3_get_and_reset_drawcalls(void); // returns count and resets to 0
+
 extern uint32 im2DVbo, im2DIbo;
 void openIm2D(void);
 void closeIm2D(void);

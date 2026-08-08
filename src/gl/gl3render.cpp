@@ -20,9 +20,13 @@ namespace gl3 {
 
 #define MAX_LIGHTS 
 
+int gl3_drawcall_count = 0;
+int gl3_get_and_reset_drawcalls(void) { int n = gl3_drawcall_count; gl3_drawcall_count = 0; return n; }
+
 void
 drawInst_simple(InstanceDataHeader *header, InstanceData *inst)
 {
+	gl3_count_drawcall();
 	flushCache();
 	glDrawElements(header->primType, inst->numIndex,
 	               GL_UNSIGNED_SHORT, (void*)(uintptr)inst->offset);

@@ -147,6 +147,7 @@ im2DRenderPrimitive(PrimitiveType primType, void *vertices, int32 numVertices)
 	im2DSetXform();
 
 	flushCache();
+	gl3_count_drawcall();
 	glDrawArrays(primTypeMap[primType], 0, numVertices);
 #ifndef RW_GL_USE_VAOS
 	disableAttribPointers(im2dattribDesc, 3);
@@ -181,6 +182,7 @@ im2DRenderIndexedPrimitive(PrimitiveType primType,
 	im2DSetXform();
 
 	flushCache();
+	gl3_count_drawcall();
 	glDrawElements(primTypeMap[primType], numIndices,
 	               GL_UNSIGNED_SHORT, nil);
 #ifndef RW_GL_USE_VAOS
@@ -277,6 +279,7 @@ im3DRenderPrimitive(PrimitiveType primType)
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, im3DIbo);
 
 	flushCache();
+	gl3_count_drawcall();
 	glDrawArrays(primTypeMap[primType], 0, num3DVertices);
 }
 
@@ -288,6 +291,7 @@ im3DRenderIndexedPrimitive(PrimitiveType primType, void *indices, int32 numIndic
 	glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, numIndices*2, indices);
 
 	flushCache();
+	gl3_count_drawcall();
 	glDrawElements(primTypeMap[primType], numIndices,
 	               GL_UNSIGNED_SHORT, nil);
 }
