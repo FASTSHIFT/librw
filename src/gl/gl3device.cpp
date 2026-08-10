@@ -498,6 +498,15 @@ bindFramebuffer(uint32 fbo)
 	}
 }
 
+#if defined(LIBRW_GBM)
+// Async present (docs/16): the FBO/texture the camera just finished rendering
+// into (set by showRaster after it flips buffers). The skeleton reads this back
+// one frame late so the GPU can render the next frame in parallel.
+uint32 gGbmLastRenderedFbo = 0;
+uint32 gGbmLastRenderedTex = 0;
+uint32 gl3_get_present_fbo(void) { return gGbmLastRenderedFbo; }
+#endif
+
 static GLint filterConvMap_NoMIP[] = {
 	0, GL_NEAREST, GL_LINEAR,
 	   GL_NEAREST, GL_LINEAR,
@@ -1418,16 +1427,39 @@ showRaster(Raster *raster, uint32 flags)
 
 #if defined(LIBRW_GBM)
 	// No window system: the camera renders into a texture-backed FBO (see
-	// rasterCreateCamera). Bind that FBO so the app (re3 skeleton) can read it
-	// back with glReadPixels right after this call, then push it to the display
-	// (fb0 / SPI). Ensure GPU work is done first.
+	// rasterCreateCamera). Async present (docs/16): instead of glFinish +
+	// reading back THIS frame (which serializes CPU behind the GPU), we keep
+	// two color FBOs. Record the just-rendered FBO for the app to read back the
+	// PREVIOUS frame, then flip so the GPU renders the next frame into the other
+	// buffer while the CPU reads/pushes the previous one. No glFinish: reading a
+	// finished (previous-frame) FBO doesn't stall.
 	(void)flags;
 	{
 		Raster *fb = raster->parent;
 		Gl3Raster *natfb = PLUGINOFFSET(Gl3Raster, fb, nativeRasterOffset);
-		bindFramebuffer(natfb->fbo);
+		if(natfb->fbo2){
+			// The FBO we just rendered into is the one to present (read back).
+			gGbmLastRenderedFbo = natfb->fbo;
+			gGbmLastRenderedTex = natfb->texid;
+			// Flip: next frame renders into the other buffer.
+			uint32 t;
+			t = natfb->fbo;   natfb->fbo = natfb->fbo2;   natfb->fbo2 = t;
+			t = natfb->texid; natfb->texid = natfb->texid2; natfb->texid2 = t;
+			// Move the shared depth RBO onto the new render target so the next
+			// frame has a working depth buffer (VC4 needs depth attached to the
+			// bound FBO; see docs/04). fboMate still points at the zbuffer, so
+			// setFrameBuffer will consider it "all good" and not re-attach.
+			if(natfb->fboMate){
+				Gl3Raster *natzb = PLUGINOFFSET(Gl3Raster, natfb->fboMate, nativeRasterOffset);
+				bindFramebuffer(natfb->fbo);
+				glFramebufferRenderbuffer(GL_FRAMEBUFFER, RW_GBM_DEPTH_ATTACHMENT, GL_RENDERBUFFER, natzb->texid);
+			}
+			bindFramebuffer(natfb->fbo);
+		}else{
+			bindFramebuffer(natfb->fbo);
+			glFinish();
+		}
 	}
-	glFinish();
 #elif defined(LIBRW_SDL2)
 	if(flags & Raster::FLIPWAITVSYNCH)
 		SDL_GL_SetSwapInterval(1);

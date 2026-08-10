@@ -260,6 +260,22 @@ rasterCreateCamera(Raster *raster)
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid, 0);
 	bindFramebuffer(0);
 	natras->fboMate = nil;
+
+	// Async present (docs/16): second color texture + FBO for double buffering.
+	// The two FBOs alternate each frame so the just-rendered frame stays intact
+	// (readable) while the GPU renders the next one, letting us drop glFinish
+	// and read back the previous frame. The depth RBO is shared and re-attached
+	// to whichever FBO is the current render target (see flipCameraBuffers).
+	glGenTextures(1, &natras->texid2);
+	prev = bindTexture(natras->texid2);
+	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
+	             raster->width, raster->height,
+	             0, natras->format, natras->type, nil);
+	bindTexture(prev);
+	glGenFramebuffers(1, &natras->fbo2);
+	bindFramebuffer(natras->fbo2);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid2, 0);
+	bindFramebuffer(0);
 #else
 	natras->texid = 0;
 	natras->fbo = 0;
