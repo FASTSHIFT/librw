@@ -128,6 +128,7 @@ im2DSetXform(void)
 void
 im2DRenderPrimitive(PrimitiveType primType, void *vertices, int32 numVertices)
 {
+	gl3_count_drawcall();
 #ifdef RW_GL_USE_VAOS
 	glBindVertexArray(im2DVao);
 #endif
@@ -158,6 +159,7 @@ im2DRenderIndexedPrimitive(PrimitiveType primType,
 	void *vertices, int32 numVertices,
 	void *indices, int32 numIndices)
 {
+	gl3_count_drawcall();
 #ifdef RW_GL_USE_VAOS
 	glBindVertexArray(im2DVao);
 #endif
@@ -274,6 +276,7 @@ im3DTransform(void *vertices, int32 numVertices, Matrix *world, uint32 flags)
 void
 im3DRenderPrimitive(PrimitiveType primType)
 {
+	gl3_count_drawcall();
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, im3DIbo);
 
 	flushCache();
@@ -283,6 +286,7 @@ im3DRenderPrimitive(PrimitiveType primType)
 void
 im3DRenderIndexedPrimitive(PrimitiveType primType, void *indices, int32 numIndices)
 {
+	gl3_count_drawcall();
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, im3DIbo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, STARTINDICES*2, nil, GL_STREAM_DRAW);
 	glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, numIndices*2, indices);
