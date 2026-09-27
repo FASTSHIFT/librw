@@ -1408,10 +1408,14 @@ showRaster(Raster *raster, uint32 flags)
 //		raster->width, raster->height);
 
 #ifdef LIBRW_SDL2
-	if(flags & Raster::FLIPWAITVSYNCH)
-		SDL_GL_SetSwapInterval(1);
-	else
-		SDL_GL_SetSwapInterval(0);
+	// Only call SDL_GL_SetSwapInterval when the value actually
+	// changes; some EGL drivers have per-call overhead here.
+	static int32 currentSwapInterval = -1;
+	int32 wantInterval = (flags & Raster::FLIPWAITVSYNCH) ? 1 : 0;
+	if (wantInterval != currentSwapInterval) {
+		SDL_GL_SetSwapInterval(wantInterval);
+		currentSwapInterval = wantInterval;
+	}
 	SDL_GL_SwapWindow(glGlobals.window);
 #else
 	if(flags & Raster::FLIPWAITVSYNCH)
@@ -1550,6 +1554,17 @@ startSDL2(void)
 
 	mode = &glGlobals.modes[glGlobals.currentMode];
 
+	// Optional RGB565 + D16 request for bandwidth-limited devices
+	// (e.g. Mali-G31 handhelds). Set LIBRW_FORCE_RGB565=0 to disable.
+	{
+		const char *env = getenv("LIBRW_FORCE_RGB565");
+		if (!env || atoi(env) != 0) {
+			SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 5);
+			SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 6);
+			SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 5);
+			SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 16);
+		}
+	}
 	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, glGlobals.numSamples);
 
 	int i;
@@ -1587,6 +1602,15 @@ startSDL2(void)
 	}
 
 	printf("OpenGL version: %s\n", glGetString(GL_VERSION));
+	{
+		// report the actual EGL config we got (16bpp check)
+		int r=0,g=0,b=0,d=0;
+		SDL_GL_GetAttribute(SDL_GL_RED_SIZE, &r);
+		SDL_GL_GetAttribute(SDL_GL_GREEN_SIZE, &g);
+		SDL_GL_GetAttribute(SDL_GL_BLUE_SIZE, &b);
+		SDL_GL_GetAttribute(SDL_GL_DEPTH_SIZE, &d);
+		printf("EGL config: R%d G%d B%d D%d\n", r, g, b, d);
+	}
 
 	glGlobals.window = win;
 	glGlobals.glcontext = ctx;
