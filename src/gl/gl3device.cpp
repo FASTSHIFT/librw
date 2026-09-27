@@ -1413,7 +1413,8 @@ showRaster(Raster *raster, uint32 flags)
 	static int32 currentSwapInterval = -1;
 	int32 wantInterval = (flags & Raster::FLIPWAITVSYNCH) ? 1 : 0;
 	if (wantInterval != currentSwapInterval) {
-		SDL_GL_SetSwapInterval(wantInterval);
+		int rc = SDL_GL_SetSwapInterval(wantInterval);
+		printf("[swapinterval] want=%d rc=%d\n", wantInterval, rc);
 		currentSwapInterval = wantInterval;
 	}
 	SDL_GL_SwapWindow(glGlobals.window);

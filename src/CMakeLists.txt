@@ -97,6 +97,19 @@ add_library(librw
 )
 add_library(librw::librw ALIAS librw)
 
+# R36S (RK3326 Cortex-A53) codegen + dead-code stripping; mirrors the
+# flags set for the reVC target (P7).
+if(REVC_R36S AND (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang"))
+    target_compile_options(librw
+        PRIVATE
+            -mcpu=cortex-a53
+            -fno-math-errno
+            -fno-trapping-math
+            -ffunction-sections
+            -fdata-sections
+    )
+endif()
+
 target_include_directories(librw
     INTERFACE
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
