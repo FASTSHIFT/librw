@@ -275,6 +275,7 @@ extern Gl3Caps gl3Caps;
 extern bool32 needToReadBackTextures;
 
 void allocateDXT(Raster *raster, int32 dxt, int32 numLevels, bool32 hasAlpha);
+void allocateASTC(Raster *raster, int32 blockWH, int32 numLevels, bool32 hasAlpha);
 
 Texture *readNativeTexture(Stream *stream);
 void writeNativeTexture(Texture *tex, Stream *stream);

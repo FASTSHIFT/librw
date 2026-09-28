@@ -38,6 +38,12 @@ getLevelSize(Raster *raster, int32 level)
 	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
 	case GL_COMPRESSED_RGBA_S3TC_DXT3_EXT:
 	case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
+	case GL_COMPRESSED_RGBA_ASTC_4x4_KHR:
+	case GL_COMPRESSED_RGBA_ASTC_5x5_KHR:
+	case GL_COMPRESSED_RGBA_ASTC_6x6_KHR:
+	case GL_COMPRESSED_RGBA_ASTC_8x8_KHR:
+	case GL_COMPRESSED_RGBA_ASTC_10x10_KHR:
+	case GL_COMPRESSED_RGBA_ASTC_12x12_KHR:
 		minDim = 4;
 		break;
 	}
@@ -269,6 +275,84 @@ rasterCreateZbuffer(Raster *raster)
 
 #endif
 
+
+void
+allocateASTC(Raster *raster, int32 blockWH, int32 numLevels, bool32 hasAlpha)
+{
+#ifdef RW_OPENGL
+	// R36S path: the RK3566's Mali-G51 blob only exposes
+	// GL_KHR_texture_compression_astc_ldr, NOT s3tc - DXT-compressed TXDs
+	// are rejected at readNativeTexture (gl3raster.cpp:937). This mirrors
+	// allocateDXT for ASTC. blockWH is the square block size (4..12);
+	// stride convention: block bytes / blockWH per pixel row.
+	assert(raster->type == Raster::TEXTURE);
+
+	Gl3Raster *natras = GETGL3RASTEREXT(raster);
+	switch(blockWH){
+	case 4: natras->internalFormat = GL_COMPRESSED_RGBA_ASTC_4x4_KHR; break;
+	case 5: natras->internalFormat = GL_COMPRESSED_RGBA_ASTC_5x5_KHR; break;
+	case 6: natras->internalFormat = GL_COMPRESSED_RGBA_ASTC_6x6_KHR; break;
+	case 8: natras->internalFormat = GL_COMPRESSED_RGBA_ASTC_8x8_KHR; break;
+	case 10: natras->internalFormat = GL_COMPRESSED_RGBA_ASTC_10x10_KHR; break;
+	case 12: natras->internalFormat = GL_COMPRESSED_RGBA_ASTC_12x12_KHR; break;
+	default:
+		assert(0 && "invalid ASTC block size");
+	}
+	natras->format = GL_RGBA;
+	natras->type = GL_UNSIGNED_BYTE;
+	natras->hasAlpha = hasAlpha;
+	natras->bpp = 2;
+	raster->depth = 16;
+	// 4x4 blocks only: 16B/block = 1 byte/pixel, matching DXT1's
+	// stride math (getLevelSize halves stride per mip; 4x4 blocks stay
+	// block-aligned through halving). Other block sizes (6x6, 8x8) break
+	// those assumptions -> heap corruption in rasterLock/Unlock.
+	assert(blockWH == 4);
+	raster->stride = raster->width;
+
+	natras->isCompressed = 1;
+	if(raster->format & Raster::MIPMAP)
+		natras->numLevels = numLevels;
+	natras->autogenMipmap = (raster->format & (Raster::MIPMAP|Raster::AUTOMIPMAP)) == (Raster::MIPMAP|Raster::AUTOMIPMAP);
+	if(natras->autogenMipmap)
+		natras->numLevels = 1;
+
+	glGenTextures(1, &natras->texid);
+	uint32 prev = bindTexture(natras->texid);
+	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
+	             raster->width, raster->height,
+	             0, natras->format, natras->type, nil);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, natras->numLevels-1);
+	natras->filterMode = 0;
+	natras->addressU = 0;
+	natras->addressV = 0;
+	natras->maxAnisotropy = 1;
+	bindTexture(prev);
+	raster->originalStride = raster->stride;
+
+	if(gl3Caps.gles && needToReadBackTextures){
+		// keep a CPU copy, same as allocateDXT
+		int32 i;
+		int32 size = 0;
+		for(i = 0; i < natras->numLevels; i++)
+			size += getLevelSize(raster, i);
+		uint8 *data = (uint8*)rwNew(sizeof(RasterLevels)+sizeof(RasterLevels::Level)*(natras->numLevels-1)+size,
+			MEMDUR_EVENT | ID_DRIVER);
+		RasterLevels *levels = (RasterLevels*)data;
+		data += sizeof(RasterLevels)+sizeof(RasterLevels::Level)*(natras->numLevels-1);
+		levels->numlevels = natras->numLevels;
+		levels->format = 0;
+		for(i = 0; i < natras->numLevels; i++){
+			levels->levels[i].data = data;
+			levels->levels[i].size = getLevelSize(raster, i);
+			levels->levels[i].width = 0;
+			levels->levels[i].height = 0;
+			data += levels->levels[i].size;
+		}
+		natras->backingStore = levels;
+	}
+#endif
+}
 
 void
 allocateDXT(Raster *raster, int32 dxt, int32 numLevels, bool32 hasAlpha)
@@ -932,13 +1016,28 @@ readNativeTexture(Stream *stream)
 	Raster *raster;
 	Gl3Raster *natras;
 	if(flags & 2){
-		if(!gl3Caps.dxtSupported){
-			tex->destroy();
-			RWERROR((ERR_FORMAT_UNSUPPORTED));
-			return nil;
+		// compression: 1/3/5 = DXT1/3/5; 4/5/6/8/10/12 = ASTC block size
+		// (4 doubles as DXT1's slot, but DXT1 is 1 - no collision).
+		// Route by device capability: Bifrost blobs expose ASTC only,
+		// desktop Mesa exposes S3TC (and often both).
+		bool isASTC = compression >= 4;
+		if(isASTC){
+			if(!gl3Caps.astcSupported){
+				tex->destroy();
+				RWERROR((ERR_FORMAT_UNSUPPORTED));
+				return nil;
+			}
+			raster = Raster::create(width, height, depth, format | Raster::TEXTURE | Raster::DONTALLOCATE, PLATFORM_GL3);
+			allocateASTC(raster, compression, numLevels, flags & 1);
+		}else{
+			if(!gl3Caps.dxtSupported){
+				tex->destroy();
+				RWERROR((ERR_FORMAT_UNSUPPORTED));
+				return nil;
+			}
+			raster = Raster::create(width, height, depth, format | Raster::TEXTURE | Raster::DONTALLOCATE, PLATFORM_GL3);
+			allocateDXT(raster, compression, numLevels, flags & 1);
 		}
-		raster = Raster::create(width, height, depth, format | Raster::TEXTURE | Raster::DONTALLOCATE, PLATFORM_GL3);
-		allocateDXT(raster, compression, numLevels, flags & 1);
 	}else{
 		raster = Raster::create(width, height, depth, format | Raster::TEXTURE, PLATFORM_GL3);
 	}
