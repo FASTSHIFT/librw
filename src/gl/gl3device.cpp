@@ -83,6 +83,12 @@ const char *shaderDecl320 =
 "#define VSOUT out\n"
 "#define FSIN in\n"
 "#define FRAGCOLOR(c) (fragColor = c)\n";
+const char *shaderDecl330 =
+"#version 330\n"
+"#define VSIN(index) layout(location = index) in\n"
+"#define VSOUT out\n"
+"#define FSIN in\n"
+"#define FRAGCOLOR(c) (fragColor = c)\n";
 const char *shaderDecl100es =
 "#version 100\n"
 "#define GL2\n"
@@ -1827,7 +1833,7 @@ initOpenGL(void)
 			shaderDecl = shaderDecl100es;
 	}else{
 		if(gl3Caps.glversion >= 30)
-			shaderDecl = shaderDecl320;
+			shaderDecl = shaderDecl330;
 		else
 			shaderDecl = shaderDecl120;
 	}
