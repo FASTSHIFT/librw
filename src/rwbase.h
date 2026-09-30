@@ -11,11 +11,8 @@
 #ifdef RW_GL3
 #define RW_OPENGL
 #define RWDEVICE gl3
-// R36S: VAOs are core in GLES3 and the Mali blob supports them; binding a
-// VAO per mesh replaces ~8 glVertexAttribPointer/enable calls per draw,
-// which is the dominant submit cost at ~400 draws/frame (see perf HUD:
-// scene submit 11.7ms CPU). Revisit if desktop GL breaks.
-#define RW_GL_USE_VAOS
+// doesn't help
+//#define RW_GL_USE_VAOS
 #endif
 
 #ifdef RW_GLES2

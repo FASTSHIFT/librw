@@ -19,15 +19,6 @@ void gl3GpuMarkerEnd(void);
 int  gl3GpuFrameStats(G3GpuMarkerStat *out, int maxOut); // returns count filled
 void gl3GpuMarkerFrameReset(void);
 
-// Draw-call trace (batching feasibility): record one frame of per-draw state
-// tuples, then report switches and mergeable-run potential.
-void gl3DrawTraceBegin(void);
-void gl3DrawTraceEnd(void);
-int  gl3DrawTraceReport(int *outDraws, int *outRasterSwitch, int *outShaderSwitch,
-                        int *outAlphaSwitch, int *outMergeableRuns);
-void gl3DrawTraceRasters(int *outDistinct, int *outTop1Count, int *outTop4Count);
-void *gl3GetBoundRaster0(void); // current stage-0 raster (trace helper)
-
 extern uint32 im2DVbo, im2DIbo;
 void openIm2D(void);
 void closeIm2D(void);
