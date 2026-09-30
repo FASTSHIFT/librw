@@ -10,6 +10,13 @@ extern int gl3_drawcall_count;
 static inline void gl3_count_drawcall(void) { gl3_drawcall_count++; }
 int gl3_get_and_reset_drawcalls(void); // returns count and resets to 0
 
+// Triple-buffer present hook (docs/09): the skeleton registers a callback
+// that receives each just-rendered camera FBO; the skeleton's present
+// thread blits it to a gbm bo and page-flips (device) or swaps (PC).
+// The fbo/texid are only valid until the next showRaster call.
+typedef void (*gl3TriplebufSubmitFn)(uint32_t fbo, uint32_t texid);
+void gl3SetTriplebufSubmit(gl3TriplebufSubmitFn fn);
+
 extern uint32 im2DVbo, im2DIbo;
 void openIm2D(void);
 void closeIm2D(void);

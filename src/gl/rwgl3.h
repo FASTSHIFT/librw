@@ -258,6 +258,13 @@ struct Gl3Raster
 	uint32 fbo;		// used for camera texture only!
 	Raster *fboMate;	// color or zbuffer raster mate of this one
 	RasterLevels *backingStore;	// if we can't read back GPU memory but have to
+#ifdef REVC_TRIPLEBUF
+	// Triple-buffer async present (docs/09): second color tex+FBO. The
+	// camera flips fbo/fbo2 each showRaster so the just-rendered frame
+	// stays readable while the GPU renders the next one into the other.
+	uint32 fbo2;
+	uint32 texid2;
+#endif
 };
 
 struct Gl3Caps

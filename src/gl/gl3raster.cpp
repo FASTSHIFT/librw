@@ -229,9 +229,41 @@ rasterCreateCamera(Raster *raster)
 
 	natras->autogenMipmap = 0;
 
+#ifdef REVC_TRIPLEBUF
+	// Camera renders into a texture-backed FBO pair (ping-pong) instead of
+	// the window default framebuffer. showRaster flips them and blits the
+	// previous frame to the window, so the main render loop never touches
+	// the window buffer (see gl3device.cpp showRaster; docs/09).
+	natras->internalFormat = GL_RGBA8;
+	natras->format = GL_RGBA;
+	natras->type = GL_UNSIGNED_BYTE;
+	natras->bpp = 4;
+
+	glGenTextures(1, &natras->texid);
+	uint32 prevTex = bindTexture(natras->texid);
+	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
+	             raster->width, raster->height,
+	             0, natras->format, natras->type, nil);
+	glGenTextures(1, &natras->texid2);
+	bindTexture(natras->texid2);
+	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
+	             raster->width, raster->height,
+	             0, natras->format, natras->type, nil);
+	bindTexture(prevTex);
+
+	glGenFramebuffers(1, &natras->fbo);
+	bindFramebuffer(natras->fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid, 0);
+	glGenFramebuffers(1, &natras->fbo2);
+	bindFramebuffer(natras->fbo2);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid2, 0);
+	bindFramebuffer(0);
+	natras->fboMate = nil;
+#else
 	natras->texid = 0;
 	natras->fbo = 0;
 	natras->fboMate = nil;
+#endif
 
 	return raster;
 }

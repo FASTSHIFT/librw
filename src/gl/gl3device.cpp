@@ -114,6 +114,14 @@ const char *shaderDecl;
 //#define RW_GL_USE_UBOS
 
 static GLuint vao;
+
+// Triple-buffer present hook (docs/09): set by the skeleton before the
+// first frame; showRaster calls it with the just-rendered camera FBO.
+static void (*gl3_triplebuf_submit)(uint32 fbo, uint32 texid) = NULL;
+void gl3SetTriplebufSubmit(void (*fn)(uint32 fbo, uint32 texid)) { gl3_triplebuf_submit = fn; }
+static inline void gl3TriplebufSubmit(uint32 fbo, uint32 texid) {
+        if (gl3_triplebuf_submit) gl3_triplebuf_submit(fbo, texid);
+}
 #ifdef RW_GL_USE_UBOS
 static GLuint ubo_state, ubo_scene, ubo_object;
 #endif
@@ -1413,14 +1421,48 @@ showRaster(Raster *raster, uint32 flags)
 //	glViewport(raster->offsetX, raster->offsetY,
 //		raster->width, raster->height);
 
+#ifdef REVC_TRIPLEBUF
+	// Async present (docs/09): the camera renders into fbo/fbo2 ping-pong.
+	// Here we (1) remember the just-rendered FBO, (2) flip the pair and move
+	// the shared depth attachment onto the next render target. The frame is
+	// then handed to the present chain (bo + page flip on device; plain swap
+	// on PC) - the main thread never waits on the EGL surface fence.
+	{
+		Raster *fb = raster->parent;
+		Gl3Raster *natfb = PLUGINOFFSET(Gl3Raster, fb, nativeRasterOffset);
+		if(natfb->fbo2){
+			uint32 justRendered = natfb->fbo;
+
+			// Flip color pair; next frame renders into the other FBO.
+			uint32 t;
+			t = natfb->fbo;   natfb->fbo = natfb->fbo2;   natfb->fbo2 = t;
+			t = natfb->texid; natfb->texid = natfb->texid2; natfb->texid2 = t;
+			// Move the shared depth RBO onto the new render target (same
+			// trick as re3's GBM backend, docs/16).
+			if(natfb->fboMate){
+				Gl3Raster *natzb = PLUGINOFFSET(Gl3Raster, natfb->fboMate, nativeRasterOffset);
+				bindFramebuffer(natfb->fbo);
+				glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+				                          GL_RENDERBUFFER, natzb->texid);
+			}
+
+			// Hand the just-rendered frame to the present chain. The chain
+			// blits the OLDEST queued completed frame into a gbm bo and
+			// page-flips; the main thread never touches the window surface.
+			gl3TriplebufSubmit(justRendered, natfb->texid2);
+			// Leave the new render target bound for the next frame.
+			bindFramebuffer(natfb->fbo);
+			return; // no SDL swap on this path
+		}
+	}
+#endif
 #ifdef LIBRW_SDL2
 	// Only call SDL_GL_SetSwapInterval when the value actually
 	// changes; some EGL drivers have per-call overhead here.
 	static int32 currentSwapInterval = -1;
 	int32 wantInterval = (flags & Raster::FLIPWAITVSYNCH) ? 1 : 0;
 	if (wantInterval != currentSwapInterval) {
-		int rc = SDL_GL_SetSwapInterval(wantInterval);
-		printf("[swapinterval] want=%d rc=%d\n", wantInterval, rc);
+		SDL_GL_SetSwapInterval(wantInterval);
 		currentSwapInterval = wantInterval;
 	}
 	SDL_GL_SwapWindow(glGlobals.window);
