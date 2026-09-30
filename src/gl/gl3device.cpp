@@ -680,6 +680,12 @@ evictRaster(Raster *raster)
 	}
 }
 
+void*
+gl3GetBoundRaster0(void)
+{
+        return rwStateCache.texstage[0].raster;
+}
+
 void
 setTexture(int32 stage, Texture *tex)
 {

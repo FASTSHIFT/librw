@@ -108,10 +108,112 @@ gl3GpuMarkerFrameReset(void)
 	gl3_gpuMarkerCount = 0;
 }
 
+// ---- draw-call trace (batching feasibility analysis) -----------------------
+// Records the per-draw state tuple (raster, shader, blend/alpha) for one
+// frame on demand, then reports: total draws, state-tuple switches, and the
+// number of GL-bind-worthy changes (raster/shader flips between consecutive
+// draws). Read via gl3DrawTraceReport after the frame.
+#define GL3_TRACE_MAX_DRAWS 4096
+struct DrawTraceEntry { void *raster; void *shader; bool alpha; bool blend; };
+static DrawTraceEntry gl3_drawTrace[GL3_TRACE_MAX_DRAWS];
+static int gl3_drawTraceCount = 0;
+static bool gl3_drawTraceEnabled = false;
+
+void gl3DrawTraceBegin(void) { gl3_drawTraceCount = 0; gl3_drawTraceEnabled = true; }
+void gl3DrawTraceEnd(void) { gl3_drawTraceEnabled = false; }
+
+static inline void
+gl3TraceDraw(void *raster, void *shader, bool alpha, bool blend)
+{
+	if(!gl3_drawTraceEnabled) return;
+	if(gl3_drawTraceCount >= GL3_TRACE_MAX_DRAWS) return;
+	gl3_drawTrace[gl3_drawTraceCount].raster = raster;
+	gl3_drawTrace[gl3_drawTraceCount].shader = shader;
+	gl3_drawTrace[gl3_drawTraceCount].alpha = alpha;
+	gl3_drawTrace[gl3_drawTraceCount].blend = blend;
+	gl3_drawTraceCount++;
+}
+
+int
+gl3DrawTraceReport(int *outDraws, int *outRasterSwitch, int *outShaderSwitch,
+                   int *outAlphaSwitch, int *outMergeableRuns)
+{
+	int draws = gl3_drawTraceCount;
+	int rasterSw = 0, shaderSw = 0, alphaSw = 0, runs = 0;
+	int i;
+	int runStart = 0;
+	for(i = 1; i <= draws; i++) {
+		bool boundary = i == draws;
+		if(!boundary) {
+			// A "mergeable run" = same raster AND same shader AND same alpha
+			// state AND both opaque (alpha-blended draws cannot be reordered
+			// freely against each other without changing output).
+			if(gl3_drawTrace[i].raster != gl3_drawTrace[i-1].raster) { rasterSw++; boundary = true; }
+			if(gl3_drawTrace[i].shader != gl3_drawTrace[i-1].shader) { shaderSw++; boundary = true; }
+			if(gl3_drawTrace[i].alpha  != gl3_drawTrace[i-1].alpha)  { alphaSw++;  boundary = true; }
+		}
+		if(boundary) {
+			int len = i - runStart;
+			// Runs of >1 identical-state draws could merge into one draw call
+			// (multi-draw or index-range concatenation).
+			if(len > 1) runs += len - 1;
+			runStart = i;
+		}
+	}
+	if(outDraws) *outDraws = draws;
+	if(outRasterSwitch) *outRasterSwitch = rasterSw;
+	if(outShaderSwitch) *outShaderSwitch = shaderSw;
+	if(outAlphaSwitch) *outAlphaSwitch = alphaSw;
+	if(outMergeableRuns) *outMergeableRuns = runs;
+	return draws;
+}
+
+// Distinct-raster histogram helper for the batching analysis: counts unique
+// rasters in the last trace and how many draws the top-repeated rasters
+// account for (tells whether sorting alone helps or atlasing is needed).
+void
+gl3DrawTraceRasters(int *outDistinct, int *outTop1Count, int *outTop4Count)
+{
+	int distinct = 0, i, j;
+	int top1 = 0, top4 = 0;
+	int counts[GL3_TRACE_MAX_DRAWS];
+	bool counted[GL3_TRACE_MAX_DRAWS];
+	for(i = 0; i < gl3_drawTraceCount; i++) counted[i] = false;
+	for(i = 0; i < gl3_drawTraceCount; i++) {
+		if(counted[i]) continue;
+		int c = 1;
+		counted[i] = true;
+		for(j = i+1; j < gl3_drawTraceCount; j++) {
+			if(!counted[j] && gl3_drawTrace[j].raster == gl3_drawTrace[i].raster) {
+				counted[j] = true;
+				c++;
+			}
+		}
+		counts[distinct++] = c;
+	}
+	// simple selection of top 4
+	for(int t = 0; t < 4 && t < distinct; t++) {
+		int best = t;
+		for(j = t+1; j < distinct; j++) if(counts[j] > counts[best]) best = j;
+		int tmp = counts[t]; counts[t] = counts[best]; counts[best] = tmp;
+		top4 += counts[t];
+		if(t == 0) top1 = counts[0];
+	}
+	if(outDistinct) *outDistinct = distinct;
+	if(outTop1Count) *outTop1Count = top1;
+	if(outTop4Count) *outTop4Count = top4;
+}
+
 void
 drawInst_simple(InstanceDataHeader *header, InstanceData *inst)
 {
 	gl3_count_drawcall();
+	// State-cache lookups are file-local to gl3device.cpp; reuse the public
+	// query helpers instead (raster pointer from the trace's own getter).
+	gl3TraceDraw(gl3GetBoundRaster0(),
+	             (void*)(uintptr)(getAlphaTest() ? 1 : 0),
+	             (rw::GetRenderState(rw::VERTEXALPHA) != 0),
+	             getAlphaBlend());
 	flushCache();
 	glDrawElements(header->primType, inst->numIndex,
 	               GL_UNSIGNED_SHORT, (void*)(uintptr)inst->offset);
