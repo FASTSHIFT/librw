@@ -10,6 +10,15 @@ extern int gl3_drawcall_count;
 static inline void gl3_count_drawcall(void) { gl3_drawcall_count++; }
 int gl3_get_and_reset_drawcalls(void); // returns count and resets to 0
 
+// GPU timer-query markers (perf HUD). Bracket passes with Begin/End; after the
+// vsync swap, call gl3GpuFrameStats to read back GPU-side ms per marker, then
+// gl3GpuMarkerFrameReset before the next frame's markers.
+struct G3GpuMarkerStat { char name[16]; double gpuMs; };
+void gl3GpuMarkerBegin(const char *name);
+void gl3GpuMarkerEnd(void);
+int  gl3GpuFrameStats(G3GpuMarkerStat *out, int maxOut); // returns count filled
+void gl3GpuMarkerFrameReset(void);
+
 extern uint32 im2DVbo, im2DIbo;
 void openIm2D(void);
 void closeIm2D(void);
