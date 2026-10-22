@@ -259,11 +259,15 @@ struct Gl3Raster
 	Raster *fboMate;	// color or zbuffer raster mate of this one
 	RasterLevels *backingStore;	// if we can't read back GPU memory but have to
 #ifdef REVC_TRIPLEBUF
-	// Triple-buffer async present (docs/09): second color tex+FBO. The
-	// camera flips fbo/fbo2 each showRaster so the just-rendered frame
-	// stays readable while the GPU renders the next one into the other.
+	// Triple-buffer async present (docs/09): three color tex+FBO targets,
+	// rotated each showRaster: fbo = rendering now, fbo2 = just submitted
+	// (pending / being blitted), fbo3 = submitted the frame before (free
+	// by the time it comes round again). With only two, the main thread
+	// had to wait for the present blit of the other one every frame.
 	uint32 fbo2;
 	uint32 texid2;
+	uint32 fbo3;
+	uint32 texid3;
 #endif
 };
 

@@ -14,7 +14,9 @@ int gl3_get_and_reset_drawcalls(void); // returns count and resets to 0
 // that receives each just-rendered camera FBO; the skeleton's present
 // thread blits it to a gbm bo and page-flips (device) or swaps (PC).
 // The fbo/texid are only valid until the next showRaster call.
-typedef void (*gl3TriplebufSubmitFn)(uint32_t fbo, uint32_t texid);
+// nextTexid: the texture the NEXT frame will render into - the consumer must
+// not be reading it when this call returns.
+typedef void (*gl3TriplebufSubmitFn)(uint32_t fbo, uint32_t texid, uint32_t nextTexid);
 void gl3SetTriplebufSubmit(gl3TriplebufSubmitFn fn);
 
 extern uint32 im2DVbo, im2DIbo;

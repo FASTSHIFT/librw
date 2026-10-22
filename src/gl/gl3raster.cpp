@@ -249,6 +249,11 @@ rasterCreateCamera(Raster *raster)
 	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
 	             raster->width, raster->height,
 	             0, natras->format, natras->type, nil);
+	glGenTextures(1, &natras->texid3);
+	bindTexture(natras->texid3);
+	glTexImage2D(GL_TEXTURE_2D, 0, natras->internalFormat,
+	             raster->width, raster->height,
+	             0, natras->format, natras->type, nil);
 	bindTexture(prevTex);
 
 	glGenFramebuffers(1, &natras->fbo);
@@ -257,6 +262,9 @@ rasterCreateCamera(Raster *raster)
 	glGenFramebuffers(1, &natras->fbo2);
 	bindFramebuffer(natras->fbo2);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid2, 0);
+	glGenFramebuffers(1, &natras->fbo3);
+	bindFramebuffer(natras->fbo3);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, natras->texid3, 0);
 	bindFramebuffer(0);
 	natras->fboMate = nil;
 #else
@@ -983,6 +991,16 @@ destroyNativeRaster(void *object, int32 offset, int32)
 			zras->fboMate = nil;
 			natras->fboMate = nil;
 		}
+#ifdef REVC_TRIPLEBUF
+		// rasterCreateCamera made three color targets for the async present
+		// rotation; release all of them (previously leaked on mode change).
+		if(natras->fbo)   glDeleteFramebuffers(1, &natras->fbo);
+		if(natras->texid) glDeleteTextures(1, &natras->texid);
+		if(natras->fbo2)   { glDeleteFramebuffers(1, &natras->fbo2); natras->fbo2 = 0; }
+		if(natras->texid2) { glDeleteTextures(1, &natras->texid2); natras->texid2 = 0; }
+		if(natras->fbo3)   { glDeleteFramebuffers(1, &natras->fbo3); natras->fbo3 = 0; }
+		if(natras->texid3) { glDeleteTextures(1, &natras->texid3); natras->texid3 = 0; }
+#endif
 		break;
 	}
 	natras->texid = 0;

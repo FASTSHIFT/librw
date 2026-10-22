@@ -117,10 +117,10 @@ static GLuint vao;
 
 // Triple-buffer present hook (docs/09): set by the skeleton before the
 // first frame; showRaster calls it with the just-rendered camera FBO.
-static void (*gl3_triplebuf_submit)(uint32 fbo, uint32 texid) = NULL;
-void gl3SetTriplebufSubmit(void (*fn)(uint32 fbo, uint32 texid)) { gl3_triplebuf_submit = fn; }
-static inline void gl3TriplebufSubmit(uint32 fbo, uint32 texid) {
-        if (gl3_triplebuf_submit) gl3_triplebuf_submit(fbo, texid);
+static void (*gl3_triplebuf_submit)(uint32 fbo, uint32 texid, uint32 nextTexid) = NULL;
+void gl3SetTriplebufSubmit(void (*fn)(uint32 fbo, uint32 texid, uint32 nextTexid)) { gl3_triplebuf_submit = fn; }
+static inline void gl3TriplebufSubmit(uint32 fbo, uint32 texid, uint32 nextTexid) {
+        if (gl3_triplebuf_submit) gl3_triplebuf_submit(fbo, texid, nextTexid);
 }
 #ifdef RW_GL_USE_UBOS
 static GLuint ubo_state, ubo_scene, ubo_object;
@@ -1430,13 +1430,20 @@ showRaster(Raster *raster, uint32 flags)
 	{
 		Raster *fb = raster->parent;
 		Gl3Raster *natfb = PLUGINOFFSET(Gl3Raster, fb, nativeRasterOffset);
-		if(natfb->fbo2){
+		if(natfb->fbo2 && natfb->fbo3){
 			uint32 justRendered = natfb->fbo;
 
-			// Flip color pair; next frame renders into the other FBO.
-			uint32 t;
-			t = natfb->fbo;   natfb->fbo = natfb->fbo2;   natfb->fbo2 = t;
-			t = natfb->texid; natfb->texid = natfb->texid2; natfb->texid2 = t;
+			// Rotate the three color targets:
+			//   fbo  (just rendered) -> fbo2 (submitted now)
+			//   fbo2 (submitted last frame) -> fbo3
+			//   fbo3 (submitted two frames ago) -> fbo (next render target)
+			// The next target is the oldest one; the present thread has
+			// normally long finished blitting it (it only ever holds the
+			// newest frame), so the main thread rarely has to wait.
+			uint32 nf = natfb->fbo3, nt = natfb->texid3;
+			natfb->fbo3 = natfb->fbo2;   natfb->texid3 = natfb->texid2;
+			natfb->fbo2 = natfb->fbo;    natfb->texid2 = natfb->texid;
+			natfb->fbo  = nf;            natfb->texid  = nt;
 			// Move the shared depth RBO onto the new render target (same
 			// trick as re3's GBM backend, docs/16).
 			if(natfb->fboMate){
@@ -1447,10 +1454,15 @@ showRaster(Raster *raster, uint32 flags)
 			}
 
 			// Hand the just-rendered frame to the present chain. The chain
-			// blits the OLDEST queued completed frame into a gbm bo and
-			// page-flips; the main thread never touches the window surface.
-			gl3TriplebufSubmit(justRendered, natfb->texid2);
-			// Leave the new render target bound for the next frame.
+			// blits it into a free gbm bo (on this thread) and the present
+			// thread page-flips the newest completed one (docs/09 §8); the
+			// main thread never touches the window surface.
+			gl3TriplebufSubmit(justRendered, natfb->texid2, natfb->texid);
+			// Leave the new render target bound for the next frame. The
+			// submit callback may have rebound READ/DRAW framebuffers behind
+			// librw's back (the present blit runs on this thread), so drop
+			// the cached binding and bind for real.
+			currentFramebuffer = ~0u;
 			bindFramebuffer(natfb->fbo);
 			return; // no SDL swap on this path
 		}
